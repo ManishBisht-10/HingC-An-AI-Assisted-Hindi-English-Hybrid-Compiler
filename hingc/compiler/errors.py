@@ -27,11 +27,12 @@ class ParseError(CompilerError):
 
 
 @dataclass(frozen=True, slots=True)
-class SemanticIssue:
-    message: str
-    line: int
-    column: int
+class SemanticIssue(CompilerError):
     severity: str  # "error" | "warning"
+
+    def __init__(self, message: str, line: int, column: int, severity: str):
+        super().__init__(message=message, line=line, column=column, phase="semantic")
+        object.__setattr__(self, "severity", severity)
 
     def __str__(self) -> str:
         return f"[semantic/{self.severity}] Line {self.line}, Col {self.column}: {self.message}"
