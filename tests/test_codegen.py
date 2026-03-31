@@ -86,6 +86,12 @@ def test_generated_c_output_matches_expected():
         exe = Path(td) / ("out.exe" if os.name == "nt" else "out")
         cpath.write_text(c, encoding="utf-8")
         subprocess.check_call(["gcc", str(cpath), "-o", str(exe)])
-        run = subprocess.run([str(exe)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        assert run.stdout == "Namaste\n"
+        try:
+            run = subprocess.run([str(exe)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        except OSError as e:
+            msg = str(e).lower()
+            if "blocked" in msg or "policy" in msg:
+                pytest.skip(f"Execution blocked by OS policy: {e}")
+            raise
+        assert run.stdout.replace("\r\n", "\n") == "Namaste\n"
 
