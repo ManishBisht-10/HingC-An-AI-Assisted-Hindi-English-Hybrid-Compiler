@@ -1,0 +1,2 @@
+"""HingC package root."""
+
