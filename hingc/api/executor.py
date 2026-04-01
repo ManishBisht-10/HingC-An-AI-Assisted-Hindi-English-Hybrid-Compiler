@@ -39,15 +39,26 @@ async def execute_c_code(c_code: str, stdin_input: Optional[str] = None, timeout
         c_path.write_text(c_code, encoding="utf-8")
 
         # 1) compile
-        gcc = await asyncio.create_subprocess_exec(
-            "gcc",
-            str(c_path),
-            "-o",
-            str(exe_path),
-            "-w",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
+        try:
+            gcc = await asyncio.create_subprocess_exec(
+                "gcc",
+                str(c_path),
+                "-o",
+                str(exe_path),
+                "-w",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+        except FileNotFoundError:
+            return ExecutionResult(
+                success=False,
+                stdout="",
+                stderr="gcc executable not found on PATH",
+                exit_code=-1,
+                execution_time_ms=(time.perf_counter() - t0) * 1000.0,
+                timed_out=False,
+                gcc_error="gcc executable not found on PATH",
+            )
         gcc_out, gcc_err = await gcc.communicate()
         if gcc.returncode != 0:
             return ExecutionResult(
