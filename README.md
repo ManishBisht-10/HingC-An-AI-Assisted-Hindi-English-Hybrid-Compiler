@@ -1,5 +1,18 @@
-# HingC-An-AI-Assisted-Hindi-English-Hybrid-Compiler
-HingC is an AI-assisted compiler for a Hindi–English hybrid programming language designed to improve programming accessibility for Hindi-speaking learners. The project combines traditional compiler design principles with Large Language Model (LLM) capabilities to create an intelligent, user-friendly compilation system.
+# HingC: AI-Assisted Hindi-English Hybrid Compiler
+
+A full-stack compiler IDE that translates HingC (Hinglish hybrid language) into equivalent C code, featuring LLM-powered error reporting and fix suggestions.
+
+## Step 18: Deployment Documentation
+To deploy the HingC compiler, follow these steps:
+1. Ensure all dependencies are installed.
+2. Build the project using the provided build scripts.
+3. Run the compiler with the desired input files.
+
+## Features Overview
+The HingC compiler includes:
+* AI-assisted error reporting.
+* Suggestions for code fixes.
+* Support for Hinglish syntax.
 
 🎯 Objectives
 

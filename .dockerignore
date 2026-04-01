@@ -1,0 +1,15 @@
+hingc/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+
+client/
+node_modules/
+dist/
+.env.local
+
+.vscode/
+.env
+.DS_Store
+*.log

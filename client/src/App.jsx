@@ -4,6 +4,7 @@ import OutputPanel from "./components/OutputPanel";
 import ErrorPanel from "./components/ErrorPanel";
 import AiAdvisor from "./components/AiAdvisor";
 import ExamplesDropdown from "./components/ExamplesDropdown";
+import ExamplesDocDrawer from "./components/ExamplesDocDrawer";
 import { compileSource, fetchExamples, getWsUrl, saveSnippet } from "./lib/api";
 import { DEFAULT_PROGRAM } from "./lib/defaultProgram";
 
@@ -21,6 +22,7 @@ export default function App() {
   const [compileResult, setCompileResult] = useState(null);
   const [activeTab, setActiveTab] = useState("Output");
   const [loadingAdvice, setLoadingAdvice] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
 
   useEffect(() => {
@@ -129,7 +131,12 @@ export default function App() {
               <span className="rounded-full border border-accent/40 bg-accent/15 px-2 py-0.5 text-xs text-accent">AI-Assisted Compiler IDE</span>
             </div>
             <div className="flex items-center gap-2">
-              <ExamplesDropdown examples={examples} onSelect={setSourceCode} loading={status.running} />
+              <button
+                onClick={() => setDrawerOpen(true)}
+                className="rounded-md border border-white/10 bg-panel px-3 py-1 text-xs text-textMain hover:border-accent/40 transition"
+              >
+                📚 Examples & Docs
+              </button>
               <button
                 onClick={handleSaveSnippet}
                 className="rounded-md border border-white/10 bg-panel px-3 py-1 text-xs text-textMain hover:border-accent/40"
@@ -185,6 +192,12 @@ export default function App() {
           </div>
         </footer>
       </div>
+
+      <ExamplesDocDrawer
+        isOpen={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        onSelectExample={setSourceCode}
+      />
     </main>
   );
 }
