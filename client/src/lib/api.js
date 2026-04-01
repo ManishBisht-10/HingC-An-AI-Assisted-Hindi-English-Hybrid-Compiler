@@ -1,4 +1,23 @@
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+function getApiBaseUrl() {
+  const envUrl = import.meta.env.VITE_API_URL;
+  if (envUrl) {
+    return envUrl;
+  }
+
+  if (typeof window !== "undefined") {
+    const { protocol, hostname, port } = window.location;
+
+    if (port === "5173" || port === "3000") {
+      return `${protocol}//${hostname}:8000`;
+    }
+
+    return window.location.origin;
+  }
+
+  return "http://localhost:8000";
+}
+
+const API_URL = getApiBaseUrl();
 
 export async function fetchExamples() {
   const res = await fetch(`${API_URL}/api/examples`);

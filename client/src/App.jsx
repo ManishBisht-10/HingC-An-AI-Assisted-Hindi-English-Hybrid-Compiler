@@ -62,6 +62,7 @@ export default function App() {
     setErrorMessage("");
 
     const ws = new WebSocket(getWsUrl());
+    let finished = false;
 
     ws.onopen = () => {
       ws.send(
@@ -84,13 +85,20 @@ export default function App() {
       }
 
       if (payload.event === "done") {
+        finished = true;
         setCompileResult(payload.result);
         setLoadingAdvice(false);
         setStatus({ running: false, phase: "done" });
+        ws.close();
       }
     };
 
     ws.onerror = () => {
+      if (finished) {
+        return;
+      }
+
+      finished = true;
       setStatus(initialStatus);
       setLoadingAdvice(false);
       setErrorMessage("WebSocket compile failed. Trying HTTP fallback...");
@@ -106,7 +114,7 @@ export default function App() {
     };
 
     ws.onclose = () => {
-      if (status.running) {
+      if (!finished && status.running) {
         setStatus({ running: false, phase: "done" });
       }
     };
