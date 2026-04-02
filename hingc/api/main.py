@@ -226,8 +226,21 @@ async def _compile_flow(req: CompileRequest) -> dict[str, Any]:
 
 
 def _parse_cors_origins() -> list[str]:
-    raw = os.getenv("CORS_ORIGINS", "http://localhost:5173")
+    default_origins = ",".join(
+        [
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+        ]
+    )
+    raw = os.getenv("CORS_ORIGINS", default_origins)
     return [item.strip() for item in raw.split(",") if item.strip()]
+
+
+def _cors_origin_regex() -> str:
+    # Allow local-network dev URLs like http://10.x.x.x:5173, http://172.x.x.x:5173, http://192.168.x.x:5173
+    return os.getenv("CORS_ORIGIN_REGEX", r"^https?://(localhost|127\.0\.0\.1|(?:\d{1,3}\.){3}\d{1,3})(:\d+)?$")
 
 
 @asynccontextmanager
@@ -241,6 +254,7 @@ app = FastAPI(title="HingC API", version=__version__, lifespan=_lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_parse_cors_origins(),
+    allow_origin_regex=_cors_origin_regex(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

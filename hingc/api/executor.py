@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import subprocess
 import time
 import uuid
 from dataclasses import dataclass
@@ -18,6 +19,83 @@ class ExecutionResult:
     execution_time_ms: float
     timed_out: bool
     gcc_error: Optional[str]
+
+
+def _execute_with_subprocess_run(
+    c_path: Path,
+    exe_path: Path,
+    stdin_input: Optional[str],
+    timeout: int,
+    t0: float,
+) -> ExecutionResult:
+    try:
+        gcc = subprocess.run(
+            ["gcc", str(c_path), "-o", str(exe_path), "-w"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+    except FileNotFoundError:
+        return ExecutionResult(
+            success=False,
+            stdout="",
+            stderr="gcc executable not found on PATH",
+            exit_code=-1,
+            execution_time_ms=(time.perf_counter() - t0) * 1000.0,
+            timed_out=False,
+            gcc_error="gcc executable not found on PATH",
+        )
+
+    if gcc.returncode != 0:
+        return ExecutionResult(
+            success=False,
+            stdout=(gcc.stdout or b"").decode("utf-8", errors="replace"),
+            stderr="",
+            exit_code=gcc.returncode or 1,
+            execution_time_ms=(time.perf_counter() - t0) * 1000.0,
+            timed_out=False,
+            gcc_error=(gcc.stderr or b"").decode("utf-8", errors="replace"),
+        )
+
+    try:
+        run = subprocess.run(
+            [str(exe_path)],
+            input=(stdin_input or "").encode("utf-8"),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=timeout,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return ExecutionResult(
+            success=False,
+            stdout="",
+            stderr="Execution timed out",
+            exit_code=-1,
+            execution_time_ms=(time.perf_counter() - t0) * 1000.0,
+            timed_out=True,
+            gcc_error=None,
+        )
+    except OSError as e:
+        return ExecutionResult(
+            success=False,
+            stdout="",
+            stderr=str(e),
+            exit_code=-1,
+            execution_time_ms=(time.perf_counter() - t0) * 1000.0,
+            timed_out=False,
+            gcc_error=None,
+        )
+
+    return ExecutionResult(
+        success=(run.returncode == 0),
+        stdout=(run.stdout or b"").decode("utf-8", errors="replace"),
+        stderr=(run.stderr or b"").decode("utf-8", errors="replace"),
+        exit_code=int(run.returncode or 0),
+        execution_time_ms=(time.perf_counter() - t0) * 1000.0,
+        timed_out=False,
+        gcc_error=None,
+    )
 
 
 async def execute_c_code(c_code: str, stdin_input: Optional[str] = None, timeout: int = 10) -> ExecutionResult:
@@ -48,6 +126,15 @@ async def execute_c_code(c_code: str, stdin_input: Optional[str] = None, timeout
                 "-w",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+            )
+        except NotImplementedError:
+            return await asyncio.to_thread(
+                _execute_with_subprocess_run,
+                c_path,
+                exe_path,
+                stdin_input,
+                timeout,
+                t0,
             )
         except FileNotFoundError:
             return ExecutionResult(
