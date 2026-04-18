@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, useRef } from "react";
 import Editor from "./components/Editor";
 import OutputPanel from "./components/OutputPanel";
 import ErrorPanel from "./components/ErrorPanel";
-import AiAdvisor from "./components/AiAdvisor";
+import CodeSage from "./components/CodeSage";
 import ExamplesDropdown from "./components/ExamplesDropdown";
 import ExamplesDocDrawer from "./components/ExamplesDocDrawer";
 import { compileSource, fetchExamples, getWsUrl, saveSnippet } from "./lib/api";
@@ -187,7 +187,7 @@ export default function App() {
               sourceCode={sourceCode}
               onJumpToLine={(lineNumber) => editorRef.current?.jumpToLine(lineNumber)}
             />
-            <AiAdvisor advice={compileResult?.llm_advice} loading={loadingAdvice} />
+            <CodeSage advice={compileResult?.llm_advice} loading={loadingAdvice} />
           </div>
         </section>
 

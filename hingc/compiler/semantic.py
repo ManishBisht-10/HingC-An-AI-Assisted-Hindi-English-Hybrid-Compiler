@@ -162,8 +162,7 @@ class SemanticAnalyzer:
         if isinstance(stmt, ast.ReturnStatement):
             expected = self._current_return_type
             if expected is None:
-                # return at top-level: allow but warn
-                self._warn(1, 1, "Return statement at top-level has no effect")
+                # Top-level return is valid in HingC program body.
                 return
             if expected == "khaali":
                 if stmt.value is not None:

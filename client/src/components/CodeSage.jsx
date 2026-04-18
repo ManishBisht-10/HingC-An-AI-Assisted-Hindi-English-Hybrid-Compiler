@@ -1,22 +1,14 @@
 import { useState } from "react";
-import { copyToClipboard } from "../lib/ui";
 
-export default function AiAdvisor({ advice, loading }) {
+export default function CodeSage({ advice, loading }) {
   const [expandedId, setExpandedId] = useState(null);
-  const [copiedId, setCopiedId] = useState(null);
-
-  const handleCopyFix = (code, errorId) => {
-    copyToClipboard(code);
-    setCopiedId(errorId);
-    setTimeout(() => setCopiedId(null), 2000);
-  };
 
   return (
     <section className="rounded-xl border border-white/5 bg-panel p-3 shadow-pane">
       <div className="mb-3 flex items-center justify-between">
         <h3 className="text-xs uppercase tracking-wide text-muted flex items-center gap-2">
           <span>🤖</span>
-          <span>AI Advisor</span>
+          <span>CodeSage</span>
         </h3>
         {loading && (
           <span className="text-[11px] text-accent inline-flex items-center gap-1">
@@ -51,9 +43,7 @@ export default function AiAdvisor({ advice, loading }) {
                       </p>
                     )}
                   </div>
-                  <span className="text-xs text-muted/40 whitespace-nowrap">
-                    {item.fixed_code_snippet && "→ Fix"}
-                  </span>
+                  <span className="text-xs text-muted/40 whitespace-nowrap">→ Advice</span>
                 </div>
               </button>
 
@@ -65,32 +55,9 @@ export default function AiAdvisor({ advice, loading }) {
                   </div>
 
                   <div className="text-xs">
-                    <p className="mb-1"><strong className="text-success">✓ Fix:</strong></p>
+                    <p className="mb-1"><strong className="text-success">✓ Detailed Advice:</strong></p>
                     <p className="text-white/70">{item.fix_suggestion}</p>
                   </div>
-
-                  {item.fixed_code_snippet && (
-                    <div className="mt-2">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-[10px] text-muted uppercase tracking-wider">
-                          Fixed Code
-                        </span>
-                        <button
-                          onClick={() =>
-                            handleCopyFix(item.fixed_code_snippet, item.error_id)
-                          }
-                          className="text-[10px] px-1.5 py-0.5 rounded bg-accentAlt text-black hover:bg-accentAlt/80 transition"
-                        >
-                          {copiedId === item.error_id
-                            ? "✓ Copied"
-                            : "Copy"}
-                        </button>
-                      </div>
-                      <pre className="overflow-x-auto rounded bg-surface p-1.5 text-[11px] text-success font-editor border border-white/5">
-                        {item.fixed_code_snippet}
-                      </pre>
-                    </div>
-                  )}
                 </div>
               )}
             </div>
@@ -102,6 +69,17 @@ export default function AiAdvisor({ advice, loading }) {
                 <span className="text-accent">💡</span>
                 <p>{advice.overall_summary}</p>
               </div>
+            </div>
+          )}
+
+          {(advice.code_quality_tips || []).length > 0 && (
+            <div className="rounded-md border border-white/10 bg-ink p-2 text-xs text-textMain">
+              <p className="mb-1 font-semibold text-muted">CodeSage Tips</p>
+              <ul className="space-y-1 text-white/70">
+                {(advice.code_quality_tips || []).map((tip, idx) => (
+                  <li key={idx}>- {tip}</li>
+                ))}
+              </ul>
             </div>
           )}
         </div>

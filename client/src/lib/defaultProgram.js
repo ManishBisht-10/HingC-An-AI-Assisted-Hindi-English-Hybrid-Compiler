@@ -3,13 +3,13 @@ export const DEFAULT_PROGRAM = `shuru
   rakho poora y = 5
   
   agar (x > y) {
-    likho("x is greater: %d\n", x)
+    likho("x is greater: %d", x)
   } warna {
-    likho("y is greater: %d\n", y)
+    likho("y is greater: %d", y)
   }
   
   jabtak (x > 0) {
-    likho("x = %d\n", x)
+    likho("x = %d", x)
     x = x - 1
   }
   
