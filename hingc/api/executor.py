@@ -98,7 +98,9 @@ def _execute_with_subprocess_run(
     )
 
 
-async def execute_c_code(c_code: str, stdin_input: Optional[str] = None, timeout: int = 10) -> ExecutionResult:
+async def execute_c_code(
+    c_code: str, stdin_input: Optional[str] = None, timeout: int = 10
+) -> ExecutionResult:
     """
     Compile and execute generated C code using local gcc.
 
@@ -111,7 +113,9 @@ async def execute_c_code(c_code: str, stdin_input: Optional[str] = None, timeout
 
     run_id = uuid.uuid4().hex
     c_path = tmp_dir / f"hingc_{run_id}.c"
-    exe_path = tmp_dir / (f"hingc_{run_id}.exe" if os.name == "nt" else f"hingc_{run_id}")
+    exe_path = tmp_dir / (
+        f"hingc_{run_id}.exe" if os.name == "nt" else f"hingc_{run_id}"
+    )
 
     try:
         c_path.write_text(c_code, encoding="utf-8")
@@ -216,4 +220,3 @@ async def execute_c_code(c_code: str, stdin_input: Optional[str] = None, timeout
                 exe_path.unlink()
         except OSError:
             pass
-

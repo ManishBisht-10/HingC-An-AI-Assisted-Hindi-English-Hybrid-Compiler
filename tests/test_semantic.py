@@ -43,4 +43,3 @@ khatam
     ast = parse(src)
     issues = analyze(ast)
     assert not any(i.severity == "error" for i in issues)
-

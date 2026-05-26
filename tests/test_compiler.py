@@ -31,4 +31,3 @@ def test_compiler_semantic_error_fails_semantic_phase():
     assert res.success is False
     assert res.phase_failed == "semantic"
     assert res.semantic_errors
-

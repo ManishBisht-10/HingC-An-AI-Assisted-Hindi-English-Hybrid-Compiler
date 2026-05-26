@@ -39,6 +39,42 @@ export default forwardRef(function Editor({ value, onChange, onRun, markers = []
         editorRef.current.setPosition({ lineNumber, column: 1 });
       }
     },
+    applyFix: (fixedCode, lineNumber) => {
+      try {
+        const editor = editorRef.current;
+        if (!editor) return;
+        const model = editor.getModel();
+        if (!model) return;
+        const full = model.getValue();
+        const lines = full.split(/\r?\n/);
+        if (lineNumber && lineNumber >= 1 && lineNumber <= lines.length) {
+          // Replace the specified line (1-based) with the fixed code
+          lines[lineNumber - 1] = fixedCode;
+        } else {
+          // If no valid line provided, append the fix at the end
+          lines.push(fixedCode);
+        }
+        const updated = lines.join("\n");
+        model.setValue(updated);
+        // move cursor to the fixed line
+        if (lineNumber) {
+          editor.revealLineInCenter(lineNumber);
+          editor.setPosition({ lineNumber, column: 1 });
+        }
+      } catch (e) {
+        // ignore errors
+      }
+    },
+    undo: () => {
+      try {
+        const editor = editorRef.current;
+        if (!editor) return;
+        // Trigger Monaco undo command
+        editor.trigger('hingc', 'undo', null);
+      } catch (e) {
+        // ignore
+      }
+    },
   }));
 
   function handleMount(editor, monaco) {

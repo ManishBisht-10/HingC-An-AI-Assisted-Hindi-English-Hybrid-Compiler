@@ -6,21 +6,69 @@ import os
 import re
 import urllib.error
 import urllib.request
+import hashlib
+from pathlib import Path
 from dataclasses import asdict, dataclass, field
 from typing import Any, Iterable, Optional
 
 from hingc.compiler.errors import CompilerError
 
 HINGC_ADVISOR_SYSTEM_PROMPT = (
-    "You are HingC Advisor - an expert in the HingC Hinglish programming language.\n"
-    "A student wrote HingC code and got compiler errors. Your job is to:\n"
-    "1. Explain each error in simple Hinglish (mix of Hindi and English), as if teaching a beginner.\n"
-    "2. Show the exact incorrect line.\n"
-    "3. Show the corrected HingC code for each error.\n"
-    "4. Give an overall summary of what went wrong.\n"
-    "5. If the code compiled successfully, review the generated C code and suggest any improvements.\n"
-    "Be friendly, encouraging, and educational. Use a conversational tone."
+    "You are HingC Advisor - an expert compiler engineer for the HingC language.\n"
+    "Given a small code snippet and a single compiler error, provide a precise, factual JSON-only response.\n"
+    "Do NOT include chain-of-thought, internal reasoning, or extra commentary. Return only JSON that follows the schema exactly.\n"
+    "Be concise and focus on root cause and an actionable one-line fix plus a minimal code snippet that fixes the issue.\n"
+    "Use simple Hinglish (mix of Hindi and English) when appropriate.\n"
+    "Show the corrected HingC code for each error when possible.\n"
 )
+
+# Small few-shot examples to guide per-error responses. Keep concise to avoid token waste.
+_FEW_SHOT_EXAMPLES = [
+    {
+        "error_id": "E1",
+        "source_snippet": "rakho poora x = \"hello\"\n",
+        "error_meta": {"phase": "semantic", "line": 1, "column": 1, "message": "Type mismatch"},
+        "root_cause": "String diya gaya hai lekin variable ka type poora (int) expected hai.",
+        "short_explanation": "Declare variable as shabd or convert assigned value to number.",
+        "fix_snippet": "rakho shabd x = \"hello\"",
+        "confidence": 0.9,
+    }
+]
+
+# Simple in-memory cache for LLM payload->response mapping to reduce duplicate calls.
+_LLM_CACHE: dict[str, str] = {}
+_CACHE_PATH = Path(os.getenv("HINGC_LLM_CACHE_PATH", ".hingc_llm_cache.json"))
+
+# Concurrency / rate-limiting: limit concurrent outgoing LLM requests
+_LLM_MAX_CONCURRENCY = int(os.getenv("LLM_MAX_CONCURRENCY", "2"))
+_LLM_SEMAPHORE = asyncio.BoundedSemaphore(_LLM_MAX_CONCURRENCY)
+
+
+def _load_cache_from_disk() -> None:
+    try:
+        if _CACHE_PATH.exists():
+            with _CACHE_PATH.open("r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, dict):
+                    _LLM_CACHE.update({k: v for k, v in data.items() if isinstance(k, str) and isinstance(v, str)})
+    except Exception:
+        # ignore cache load errors
+        pass
+
+
+def _save_cache_to_disk() -> None:
+    try:
+        tmp = _CACHE_PATH.with_suffix(".tmp")
+        with tmp.open("w", encoding="utf-8") as f:
+            json.dump(_LLM_CACHE, f, ensure_ascii=False)
+        tmp.replace(_CACHE_PATH)
+    except Exception:
+        # ignore cache save errors
+        pass
+
+
+# Initialize cache on import
+_load_cache_from_disk()
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,6 +77,9 @@ class LLMErrorExplanation:
     explanation: str
     fix_suggestion: str
     fixed_code_snippet: str
+    confidence: float = 0.0
+    candidates: list[dict[str, Any]] = field(default_factory=list)
+    line: Optional[int] = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,6 +94,7 @@ async def explain_errors(
     source_code: str,
     errors: list[CompilerError],
     generated_c: Optional[str],
+    language: str = "hinglish",
 ) -> LLMAdvice:
     """
     Generate educational diagnostics for HingC compile results.
@@ -59,37 +111,191 @@ async def explain_errors(
         "ollama": "llama3.1:8b-instruct-q8_0",
         "llama": "llama3.1:8b-instruct-q8_0",
     }
-    model = os.getenv("LLM_MODEL", default_model_by_provider.get(provider, "llama3.1:8b-instruct-q8_0")).strip()
+    model = os.getenv(
+        "LLM_MODEL",
+        default_model_by_provider.get(provider, "llama3.1:8b-instruct-q8_0"),
+    ).strip()
 
-    user_payload = _build_user_payload(source_code=source_code, errors=errors, generated_c=generated_c)
-
-    raw_response = ""
+    # First attempt: try the original aggregated prompt (one call for all errors).
+    # Many providers or user-configured prompts return a full JSON object with
+    # overall_summary and all error_explanations; prefer that when available.
+    aggregated_payload = _build_user_payload(
+        source_code=source_code, errors=errors, generated_c=generated_c, language=language
+    )
     try:
-        if provider == "openai":
-            raw_response = await _call_openai(model=model, user_payload=user_payload)
-        elif provider in {"ollama", "llama"}:
-            raw_response = await _call_ollama(model=model, user_payload=user_payload)
+        # If many errors, prefer the aggregated call to avoid many small requests.
+        batch_threshold = int(os.getenv("LLM_BATCH_THRESHOLD", "5"))
+        if len(errors) >= batch_threshold:
+            agg_key = hashlib.sha256(aggregated_payload.encode("utf-8")).hexdigest()
+            agg_raw = _LLM_CACHE.get(agg_key)
+            if agg_raw is None:
+                async with _LLM_SEMAPHORE:
+                    if provider == "openai":
+                        agg_raw = await _call_openai(model=model, user_payload=aggregated_payload)
+                    elif provider in {"ollama", "llama"}:
+                        agg_raw = await _call_ollama(model=model, user_payload=aggregated_payload)
+                    else:
+                        agg_raw = await _call_anthropic(model=model, user_payload=aggregated_payload)
+                _LLM_CACHE[agg_key] = agg_raw
+                _save_cache_to_disk()
         else:
-            raw_response = await _call_anthropic(model=model, user_payload=user_payload)
+            # try aggregated call (also cached) as a best-effort; fallback to per-error
+            agg_key = hashlib.sha256(aggregated_payload.encode("utf-8")).hexdigest()
+            agg_raw = _LLM_CACHE.get(agg_key)
+            if agg_raw is None:
+                try:
+                    async with _LLM_SEMAPHORE:
+                        if provider == "openai":
+                            agg_raw = await _call_openai(model=model, user_payload=aggregated_payload)
+                        elif provider in {"ollama", "llama"}:
+                            agg_raw = await _call_ollama(model=model, user_payload=aggregated_payload)
+                        else:
+                            agg_raw = await _call_anthropic(model=model, user_payload=aggregated_payload)
+                    _LLM_CACHE[agg_key] = agg_raw
+                    _save_cache_to_disk()
+                except Exception:
+                    agg_raw = ""
 
-        parsed = _parse_model_response(raw_response)
-        normalized = _normalize_advice(parsed, raw_response=raw_response)
-        normalized = _postprocess_advice(source_code=source_code, errors=errors, advice=normalized)
-        if normalized.error_explanations or normalized.overall_summary or normalized.code_quality_tips:
-            return normalized
+        parsed_agg = _parse_model_response(agg_raw)
+        if parsed_agg and (parsed_agg.get("error_explanations") or parsed_agg.get("overall_summary") or parsed_agg.get("code_quality_tips")):
+            normalized = _normalize_advice(parsed_agg, raw_response=agg_raw)
+            normalized = _postprocess_advice(source_code=source_code, errors=errors, advice=normalized)
+            if (
+                normalized.error_explanations
+                or normalized.overall_summary
+                or normalized.code_quality_tips
+            ):
+                return normalized
     except Exception:
-        # Fallback below; callers still get usable guidance even on API failures.
+        # Fall back to per-error focused calls below.
         pass
 
-    return _fallback_advice(source_code=source_code, errors=errors, generated_c=generated_c, raw_response=raw_response)
+    # Use focused, per-error LLM calls. This improves precision and forces the model
+    # to explain each reported error with a strict JSON schema.
+    advice_items: list[LLMErrorExplanation] = []
+    raw_response = ""
+
+    try:
+        lines = source_code.splitlines()
+        aggregated_overall = ""
+        aggregated_tips: list[str] = []
+        for idx, err in enumerate(errors, start=1):
+            try:
+                snippet = _snippet_around_error(lines, err, context=3)
+                user_payload = _build_user_payload_single(
+                    source_snippet=snippet, err=err, error_id=f"E{idx}", language=language
+                )
+
+                if provider == "openai":
+                            # cache key
+                            key = hashlib.sha256(user_payload.encode("utf-8")).hexdigest()
+                            raw = _LLM_CACHE.get(key)
+                            if raw is None:
+                                async with _LLM_SEMAPHORE:
+                                    raw = await _call_openai(model=model, user_payload=user_payload)
+                                _LLM_CACHE[key] = raw
+                                _save_cache_to_disk()
+                elif provider in {"ollama", "llama"}:
+                            key = hashlib.sha256(user_payload.encode("utf-8")).hexdigest()
+                            raw = _LLM_CACHE.get(key)
+                            if raw is None:
+                                async with _LLM_SEMAPHORE:
+                                    raw = await _call_ollama(model=model, user_payload=user_payload)
+                                _LLM_CACHE[key] = raw
+                                _save_cache_to_disk()
+                else:
+                            key = hashlib.sha256(user_payload.encode("utf-8")).hexdigest()
+                            raw = _LLM_CACHE.get(key)
+                            if raw is None:
+                                async with _LLM_SEMAPHORE:
+                                    raw = await _call_anthropic(model=model, user_payload=user_payload)
+                                _LLM_CACHE[key] = raw
+                                _save_cache_to_disk()
+
+                raw_response += "\n" + raw
+                parsed = _parse_model_response(raw)
+
+                if isinstance(parsed, dict) and parsed:
+                    # If provider returned an aggregated structure with several error_explanations,
+                    # consume them all.
+                    if parsed.get("error_explanations"):
+                        for item in parsed.get("error_explanations"):
+                            advice_items.append(
+                                LLMErrorExplanation(
+                                    error_id=str(item.get("error_id") or f"E{idx}"),
+                                    explanation=str(item.get("explanation") or item.get("root_cause") or ""),
+                                    fix_suggestion=str(item.get("fix_suggestion") or item.get("short_explanation") or ""),
+                                    fixed_code_snippet=str(item.get("fixed_code_snippet") or item.get("fix_snippet") or ""),
+                                    confidence=float(item.get("confidence") or 0.0),
+                                    candidates=[c for c in item.get("candidates") or [] if isinstance(c, dict)],
+                                    line=int(item.get("line") or err.line),
+                                )
+                            )
+                    else:
+                        root = parsed.get("root_cause") or parsed.get("explanation") or ""
+                        short = parsed.get("short_explanation") or parsed.get("fix") or parsed.get("fix_suggestion") or ""
+                        fix_snip = parsed.get("fix_snippet") or parsed.get("fixed_code_snippet") or ""
+                        advice_items.append(
+                            LLMErrorExplanation(
+                                error_id=str(parsed.get("error_id") or f"E{idx}"),
+                                explanation=str(root),
+                                fix_suggestion=str(short),
+                                fixed_code_snippet=str(fix_snip),
+                                confidence=float(parsed.get("confidence") or 0.0),
+                                candidates=[c for c in parsed.get("candidates") or [] if isinstance(c, dict)],
+                                line=int(parsed.get("line") or err.line),
+                            )
+                        )
+
+                    if not aggregated_overall and parsed.get("overall_summary"):
+                        aggregated_overall = str(parsed.get("overall_summary"))
+                    if parsed.get("code_quality_tips"):
+                        try:
+                            aggregated_tips.extend(list(parsed.get("code_quality_tips")))
+                        except Exception:
+                            pass
+                else:
+                    # If model returned nothing parseable, fall back to deterministic advice
+                    raise RuntimeError("empty parsed response")
+            except Exception:
+                # On any per-error failure, append fallback for that error and continue.
+                fb = _fallback_advice(source_code, [err], generated_c, raw_response)
+                if fb.error_explanations:
+                    advice_items.extend(fb.error_explanations)
+                if not aggregated_overall and fb.overall_summary:
+                    aggregated_overall = fb.overall_summary
+                if fb.code_quality_tips:
+                    aggregated_tips.extend(fb.code_quality_tips)
+
+        if advice_items:
+            return LLMAdvice(
+                error_explanations=advice_items,
+                overall_summary=aggregated_overall,
+                code_quality_tips=aggregated_tips,
+                raw_response=raw_response,
+            )
+    except Exception:
+        # If anything goes wrong in the per-error loop, fall back to the original behavior.
+        pass
+
+    # Last-resort: use the original aggregated approach (best-effort) and fallback.
+    return _fallback_advice(
+        source_code=source_code,
+        errors=errors,
+        generated_c=generated_c,
+        raw_response=raw_response,
+    )
 
 
-def _build_user_payload(source_code: str, errors: list[CompilerError], generated_c: Optional[str]) -> str:
+def _build_user_payload(
+    source_code: str, errors: list[CompilerError], generated_c: Optional[str], language: str = "hinglish"
+) -> str:
     structured_errors = _serialize_errors(errors)
     payload = {
         "source_code": source_code,
         "errors": structured_errors,
         "generated_c": generated_c,
+        "language": language,
         "instructions": (
             "Return JSON only with keys: error_explanations, overall_summary, code_quality_tips. "
             "error_explanations must be a list of objects with keys: "
@@ -97,6 +303,30 @@ def _build_user_payload(source_code: str, errors: list[CompilerError], generated
         ),
     }
     return json.dumps(payload, ensure_ascii=False, indent=2)
+
+
+def _build_user_payload_single(source_snippet: str, err: CompilerError, error_id: str, language: str = "hinglish") -> str:
+    # Build a focused prompt for a single error. Return JSON only with strict schema.
+    payload = {
+        "error_id": error_id,
+        "source_snippet": source_snippet,
+        "error_meta": {
+            "phase": err.phase,
+            "line": err.line,
+            "column": err.column,
+            "message": err.message,
+        },
+        "language": language,
+        "instructions": (
+            "Return a JSON object only (no extra text) with these keys:"
+            " error_id (string), root_cause (one-sentence), short_explanation (one-line actionable fix),"
+            " fix_snippet (a minimal code snippet that fixes the issue; may be 1-3 lines), confidence (0-1 float),"
+            " candidates (an optional list of candidate fixes: [{fix_snippet, confidence}])."
+            " Do NOT include chain-of-thought or extra commentary. Keep values concise."
+        ),
+        "examples": _FEW_SHOT_EXAMPLES,
+    }
+    return json.dumps(payload, ensure_ascii=False)
 
 
 def _serialize_errors(errors: Iterable[CompilerError]) -> list[dict[str, Any]]:
@@ -122,7 +352,7 @@ async def _call_anthropic(model: str, user_payload: str) -> str:
     body = {
         "model": model,
         "max_tokens": 1600,
-        "temperature": 0.2,
+        "temperature": 0.0,
         "system": HINGC_ADVISOR_SYSTEM_PROMPT,
         "messages": [
             {
@@ -155,7 +385,7 @@ async def _call_openai(model: str, user_payload: str) -> str:
 
     body = {
         "model": model,
-        "temperature": 0.2,
+        "temperature": 0.0,
         "response_format": {"type": "json_object"},
         "messages": [
             {"role": "system", "content": HINGC_ADVISOR_SYSTEM_PROMPT},
@@ -181,7 +411,9 @@ async def _call_openai(model: str, user_payload: str) -> str:
 
 
 async def _call_ollama(model: str, user_payload: str) -> str:
-    base_url = os.getenv("LLAMA_API_URL", os.getenv("OLLAMA_API_URL", "http://localhost:11434")).strip()
+    base_url = os.getenv(
+        "LLAMA_API_URL", os.getenv("OLLAMA_API_URL", "http://localhost:11434")
+    ).strip()
     if not base_url:
         raise RuntimeError("LLAMA_API_URL/OLLAMA_API_URL is not configured")
 
@@ -191,7 +423,7 @@ async def _call_ollama(model: str, user_payload: str) -> str:
         "stream": False,
         "format": "json",
         "options": {
-            "temperature": 0.2,
+            "temperature": 0.0,
         },
         "messages": [
             {"role": "system", "content": HINGC_ADVISOR_SYSTEM_PROMPT},
@@ -244,7 +476,20 @@ def _parse_model_response(raw_response: str) -> dict[str, Any]:
             if isinstance(parsed, dict):
                 return parsed
         except json.JSONDecodeError:
-            return {}
+            # Try a tolerant fallback: look for key:value pairs for expected fields.
+            result: dict[str, Any] = {}
+            # root_cause and candidates heuristics
+            m = re.search(r'root_cause\s*[:=]\s*"([^"]+)"', raw_response)
+            if m:
+                result["root_cause"] = m.group(1)
+            m2 = re.search(r'fix_snippet\s*[:=]\s*"([^"]+)"', raw_response)
+            if m2:
+                result["fix_snippet"] = m2.group(1)
+            # attempt to extract simple candidate blocks like candidate0: "..."
+            cand_matches = re.findall(r'candidate\d*\s*[:=]\s*"([^"]+)"', raw_response)
+            if cand_matches:
+                result["candidates"] = [{"fix_snippet": c, "confidence": 0.0} for c in cand_matches]
+            return result
     return {}
 
 
@@ -259,6 +504,9 @@ def _normalize_advice(parsed: dict[str, Any], raw_response: str) -> LLMAdvice:
                 explanation=str(item.get("explanation") or ""),
                 fix_suggestion=str(item.get("fix_suggestion") or ""),
                 fixed_code_snippet=str(item.get("fixed_code_snippet") or ""),
+                confidence=float(item.get("confidence") or 0.0),
+                candidates=[c for c in item.get("candidates") or [] if isinstance(c, dict)],
+                line=int(item.get("line")) if item.get("line") else None,
             )
         )
 
@@ -289,13 +537,20 @@ def _fallback_advice(
             line_text=line_text,
             line_no=resolved_line,
         )
-        fixed_code = _ensure_distinct_fix(original_line=line_text, proposed_fixed_line=fixed_code)
+        fixed_code = _ensure_distinct_fix(
+            original_line=line_text, proposed_fixed_line=fixed_code
+        )
         explanations.append(
             LLMErrorExplanation(
                 error_id=f"E{idx}",
                 explanation=explanation,
-                fix_suggestion=_compose_detailed_fix_advice(base_advice=fix_suggestion, line_no=resolved_line, fixed_line=fixed_code),
+                fix_suggestion=_compose_detailed_fix_advice(
+                    base_advice=fix_suggestion,
+                    line_no=resolved_line,
+                    fixed_line=fixed_code,
+                ),
                 fixed_code_snippet=fixed_code,
+                line=resolved_line,
             )
         )
 
@@ -324,7 +579,9 @@ def _fallback_advice(
     )
 
 
-def _build_targeted_fallback(err: CompilerError, line_text: str, line_no: int | None = None) -> tuple[str, str, str]:
+def _build_targeted_fallback(
+    err: CompilerError, line_text: str, line_no: int | None = None
+) -> tuple[str, str, str]:
     msg = err.message
     msg_lower = msg.lower()
     clean_line = line_text.strip()
@@ -389,13 +646,20 @@ def _build_targeted_fallback(err: CompilerError, line_text: str, line_no: int | 
         )
 
     # semantic: type mismatch on assignment
-    mismatch = re.search(r"Type mismatch: cannot assign ([^ ]+) to ([^ ]+) variable '([^']+)'", msg)
+    mismatch = re.search(
+        r"Type mismatch: cannot assign ([^ ]+) to ([^ ]+) variable '([^']+)'", msg
+    )
     if mismatch:
         source_t, target_t, name = mismatch.groups()
         return (
             f"Line {display_line} par type mismatch hai: value type {source_t} hai, variable '{name}' ka type {target_t} hai.",
             "Variable type aur assigned value type same rakho. Ya to declaration ka type badlo, ya compatible value do.",
-            _type_mismatch_fix_line(target_type=target_t, source_type=source_t, var_name=name, current_line=clean_line),
+            _type_mismatch_fix_line(
+                target_type=target_t,
+                source_type=source_t,
+                var_name=name,
+                current_line=clean_line,
+            ),
         )
 
     # semantic: loop-control misuse
@@ -422,7 +686,9 @@ def _build_targeted_fallback(err: CompilerError, line_text: str, line_no: int | 
             f"kaam poora {fn}() {{\n  wapas 0\n}}",
         )
 
-    wrong_args = re.search(r"Function '([^']+)' called with wrong number of arguments", msg)
+    wrong_args = re.search(
+        r"Function '([^']+)' called with wrong number of arguments", msg
+    )
     if wrong_args:
         fn = wrong_args.group(1)
         return (
@@ -438,7 +704,9 @@ def _build_targeted_fallback(err: CompilerError, line_text: str, line_no: int | 
         elif re.search(r"[+\-*/%><=!&|]\s*\)", clean_line):
             # Common beginner typo: incomplete condition like agar (x >) {
             fixed_line = re.sub(r"([+\-*/%><=!&|])\s*\)", r"\1 0)", clean_line)
-        elif clean_line.endswith(("+", "-", "*", "/", "%", ">", "<", "==", "!=", "&&", "||")):
+        elif clean_line.endswith(
+            ("+", "-", "*", "/", "%", ">", "<", "==", "!=", "&&", "||")
+        ):
             fixed_line = f"{clean_line} 1"
         else:
             fixed_line = "rakho poora x = 1"
@@ -463,7 +731,9 @@ def _build_targeted_fallback(err: CompilerError, line_text: str, line_no: int | 
     )
 
 
-def _fix_expected_token_line(clean_line: str, expected: str, got: str, column: int) -> str:
+def _fix_expected_token_line(
+    clean_line: str, expected: str, got: str, column: int
+) -> str:
     if not clean_line:
         return "rakho poora temp = 0"
 
@@ -475,7 +745,9 @@ def _fix_expected_token_line(clean_line: str, expected: str, got: str, column: i
         return _insert_at_col(clean_line, column, ")")
 
     if expected == "LPAREN":
-        m = re.match(r"^(\s*(?:agar|jabtak|likho|lo|chunao|karo)\b)\s+(.+)$", clean_line)
+        m = re.match(
+            r"^(\s*(?:agar|jabtak|likho|lo|chunao|karo)\b)\s+(.+)$", clean_line
+        )
         if m:
             return f"{m.group(1)}({m.group(2)})"
         return _insert_at_col(clean_line, column, "(")
@@ -544,12 +816,14 @@ def _insert_at_col(line: str, column: int, text: str) -> str:
     return f"{line[:idx]}{text}{line[idx:]}"
 
 
-def _type_mismatch_fix_line(target_type: str, source_type: str, var_name: str, current_line: str) -> str:
+def _type_mismatch_fix_line(
+    target_type: str, source_type: str, var_name: str, current_line: str
+) -> str:
     # String assigned to int/float style mismatch is common for beginners.
     if source_type == "shabd" and target_type in {"poora", "dasha"}:
-        return f"rakho shabd {var_name} = \"text\""
+        return f'rakho shabd {var_name} = "text"'
     if source_type in {"poora", "dasha"} and target_type == "shabd":
-        return f"rakho shabd {var_name} = \"123\""
+        return f'rakho shabd {var_name} = "123"'
 
     if current_line:
         return current_line
@@ -578,7 +852,9 @@ def advice_to_dict(advice: LLMAdvice) -> dict[str, Any]:
     }
 
 
-def _postprocess_advice(source_code: str, errors: list[CompilerError], advice: LLMAdvice) -> LLMAdvice:
+def _postprocess_advice(
+    source_code: str, errors: list[CompilerError], advice: LLMAdvice
+) -> LLMAdvice:
     if not errors:
         return advice
 
@@ -598,22 +874,31 @@ def _postprocess_advice(source_code: str, errors: list[CompilerError], advice: L
             line_text=line_text,
             line_no=resolved_line,
         )
-        fallback_code = _ensure_distinct_fix(original_line=line_text, proposed_fixed_line=fallback_code)
+        fallback_code = _ensure_distinct_fix(
+            original_line=line_text, proposed_fixed_line=fallback_code
+        )
 
         if existing is None:
             improved.append(
                 LLMErrorExplanation(
                     error_id=error_id,
                     explanation=fallback_expl,
-                    fix_suggestion=_compose_detailed_fix_advice(base_advice=fallback_fix, line_no=resolved_line, fixed_line=fallback_code),
+                    fix_suggestion=_compose_detailed_fix_advice(
+                        base_advice=fallback_fix,
+                        line_no=resolved_line,
+                        fixed_line=fallback_code,
+                    ),
                     fixed_code_snippet=fallback_code,
+                    line=resolved_line,
                 )
             )
             continue
 
         explanation = existing.explanation.strip() or fallback_expl
         # Use deterministic compiler-rule-based fix output for reliability.
-        fix_suggestion = _compose_detailed_fix_advice(base_advice=fallback_fix, line_no=err.line, fixed_line=fallback_code)
+        fix_suggestion = _compose_detailed_fix_advice(
+            base_advice=fallback_fix, line_no=err.line, fixed_line=fallback_code
+        )
         fixed_code = fallback_code
 
         improved.append(
@@ -622,6 +907,7 @@ def _postprocess_advice(source_code: str, errors: list[CompilerError], advice: L
                 explanation=explanation,
                 fix_suggestion=fix_suggestion,
                 fixed_code_snippet=fixed_code,
+                line=resolved_line,
             )
         )
 
@@ -659,15 +945,16 @@ def _looks_invalid_fix_line(text: str) -> bool:
     return False
 
 
-def _compose_detailed_fix_advice(base_advice: str, line_no: int, fixed_line: str) -> str:
+def _compose_detailed_fix_advice(
+    base_advice: str, line_no: int, fixed_line: str
+) -> str:
     snippet = fixed_line.strip() or "(remove this line)"
-    return (
-        f"{base_advice} "
-        f"Custom fix for line {line_no}: {snippet}"
-    )
+    return f"{base_advice} " f"Custom fix for line {line_no}: {snippet}"
 
 
-def _resolve_error_line_and_text(lines: list[str], err: CompilerError) -> tuple[int, str]:
+def _resolve_error_line_and_text(
+    lines: list[str], err: CompilerError
+) -> tuple[int, str]:
     # If compiler already has a strong line reference, trust it.
     if 1 <= err.line <= len(lines) and err.line != 1:
         return err.line, lines[err.line - 1]
@@ -680,7 +967,9 @@ def _resolve_error_line_and_text(lines: list[str], err: CompilerError) -> tuple[
         name = var_match.group(1)
         for idx, line in enumerate(lines, start=1):
             if re.search(rf"\b{re.escape(name)}\b", line):
-                if "Undeclared variable" in msg and re.search(rf"\brakho\b.*\b{re.escape(name)}\b", line):
+                if "Undeclared variable" in msg and re.search(
+                    rf"\brakho\b.*\b{re.escape(name)}\b", line
+                ):
                     continue
                 return idx, line
 

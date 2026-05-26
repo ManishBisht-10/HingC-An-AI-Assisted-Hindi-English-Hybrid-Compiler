@@ -33,7 +33,6 @@ from .ast_nodes import (
 from .errors import ParseError
 from .lexer import Token, lex
 
-
 TYPE_KEYWORDS = {"poora", "dasha", "akshar", "shabd", "khaali"}
 
 
@@ -93,19 +92,23 @@ class Parser:
             return self._parse_switch()
 
         # Assignment or expression statement (function call)
-        if tok.type == "IDENTIFIER":
+        if tok.type.upper() == "IDENTIFIER":
             if self._peek(1).type == "ASSIGN":
                 return self._parse_assignment()
             expr = self._parse_expression()
             return ExpressionStatement(expr=expr)
 
-        raise self._error_here(f"Unexpected token {tok.type}({tok.value!r}) in statement")
+        raise self._error_here(
+            f"Unexpected token {tok.type}({tok.value!r}) in statement"
+        )
 
     def _parse_var_decl(self) -> VarDeclaration:
         self._expect_keyword("rakho")
         type_tok = self._expect("KEYWORD")
         if type_tok.value not in TYPE_KEYWORDS:
-            raise self._error_at(type_tok, f"Expected type keyword, got {type_tok.value!r}")
+            raise self._error_at(
+                type_tok, f"Expected type keyword, got {type_tok.value!r}"
+            )
         name_tok = self._expect("IDENTIFIER")
         value: Optional[Expression] = None
         if self._at("ASSIGN"):
@@ -140,7 +143,9 @@ class Parser:
             self._advance()
             else_body = self._parse_block()
 
-        return IfStatement(condition=cond, then_body=then_body, elif_clauses=elifs, else_body=else_body)
+        return IfStatement(
+            condition=cond, then_body=then_body, elif_clauses=elifs, else_body=else_body
+        )
 
     def _parse_while(self) -> WhileStatement:
         self._expect_keyword("jabtak")
@@ -184,7 +189,9 @@ class Parser:
         self._expect_keyword("kaam")
         ret_tok = self._expect("KEYWORD")
         if ret_tok.value not in TYPE_KEYWORDS:
-            raise self._error_at(ret_tok, f"Expected return type, got {ret_tok.value!r}")
+            raise self._error_at(
+                ret_tok, f"Expected return type, got {ret_tok.value!r}"
+            )
         name_tok = self._expect("IDENTIFIER")
         self._expect("LPAREN")
         params: List[Tuple[str, str]] = []
@@ -192,7 +199,9 @@ class Parser:
             while True:
                 ptype = self._expect("KEYWORD")
                 if ptype.value not in TYPE_KEYWORDS:
-                    raise self._error_at(ptype, f"Expected param type, got {ptype.value!r}")
+                    raise self._error_at(
+                        ptype, f"Expected param type, got {ptype.value!r}"
+                    )
                 pname = self._expect("IDENTIFIER")
                 params.append((ptype.value, pname.value))
                 if self._at("COMMA"):
@@ -201,7 +210,9 @@ class Parser:
                 break
         self._expect("RPAREN")
         body = self._parse_block()
-        return FunctionDecl(return_type=ret_tok.value, name=name_tok.value, params=params, body=body)
+        return FunctionDecl(
+            return_type=ret_tok.value, name=name_tok.value, params=params, body=body
+        )
 
     def _parse_return(self) -> ReturnStatement:
         self._expect_keyword("wapas")
@@ -256,8 +267,11 @@ class Parser:
                 self._expect("COLON")
                 body_stmts: List[Statement] = []
                 self._skip_statement_terminators()
-                while not self._at("RBRACE") and not self._at("EOF") and not self._is_keyword("sthiti") and not self._is_keyword(
-                    "warna_default"
+                while (
+                    not self._at("RBRACE")
+                    and not self._at("EOF")
+                    and not self._is_keyword("sthiti")
+                    and not self._is_keyword("warna_default")
                 ):
                     body_stmts.append(self._parse_statement())
                     self._skip_statement_terminators()
@@ -269,7 +283,11 @@ class Parser:
                 self._expect("COLON")
                 body_stmts = []
                 self._skip_statement_terminators()
-                while not self._at("RBRACE") and not self._at("EOF") and not self._is_keyword("sthiti"):
+                while (
+                    not self._at("RBRACE")
+                    and not self._at("EOF")
+                    and not self._is_keyword("sthiti")
+                ):
                     if self._is_keyword("warna_default"):
                         raise self._error_here("Duplicate warna_default in switch")
                     body_stmts.append(self._parse_statement())
@@ -356,7 +374,9 @@ class Parser:
         return expr
 
     def _parse_unary(self) -> Expression:
-        if (self._at("LOGICAL") and self._peek().value in ("!", "nahi")) or (self._at("OPERATOR") and self._peek().value in ("-", "&")):
+        if (self._at("LOGICAL") and self._peek().value in ("!", "nahi")) or (
+            self._at("OPERATOR") and self._peek().value in ("-", "&")
+        ):
             op_tok = self._advance()
             operand = self._parse_unary()
             return UnaryOp(op=op_tok.value, operand=operand)
@@ -365,24 +385,24 @@ class Parser:
     def _parse_primary(self) -> Expression:
         tok = self._peek()
 
-        if tok.type == "NUMBER_INT":
+        if tok.type.upper() == "NUMBER_INT":
             self._advance()
             return IntLiteral(value=int(tok.value))
-        if tok.type == "NUMBER_FLOAT":
+        if tok.type.upper() == "NUMBER_FLOAT":
             self._advance()
             return FloatLiteral(value=float(tok.value))
-        if tok.type == "STRING_LITERAL":
+        if tok.type.upper() == "STRING_LITERAL":
             self._advance()
             return StringLiteral(value=tok.value)
-        if tok.type == "CHAR_LITERAL":
+        if tok.type.upper() == "CHAR_LITERAL":
             self._advance()
             return CharLiteral(value=tok.value)
 
-        if tok.type == "KEYWORD" and tok.value in ("sahi", "galat"):
+        if tok.type.upper() == "KEYWORD" and tok.value in ("sahi", "galat"):
             self._advance()
             return IntLiteral(value=1 if tok.value == "sahi" else 0)
 
-        if tok.type == "IDENTIFIER":
+        if tok.type.upper() == "IDENTIFIER":
             self._advance()
             ident = tok.value
             if self._at("LPAREN"):
@@ -418,29 +438,36 @@ class Parser:
         self._skip_separators()
 
     def _at_statement_end(self) -> bool:
-        return self._at("NEWLINE") or self._at("SEMICOLON") or self._at("RBRACE") or self._at("EOF")
+        return (
+            self._at("NEWLINE")
+            or self._at("SEMICOLON")
+            or self._at("RBRACE")
+            or self._at("EOF")
+        )
 
     def _at(self, typ: str) -> bool:
-        return self._peek().type == typ
+        return self._peek().type.upper() == typ.upper()
 
     def _is_keyword(self, value: str) -> bool:
-        return self._peek().type == "KEYWORD" and self._peek().value == value
+        return self._peek().type.upper() == "KEYWORD" and self._peek().value == value
 
     def _expect_keyword(self, value: str) -> Token:
         tok = self._peek()
-        if tok.type == "KEYWORD" and tok.value == value:
+        if tok.type.upper() == "KEYWORD" and tok.value == value:
             return self._advance()
         raise self._error_at(tok, f"Expected keyword {value!r}")
 
     def _expect(self, typ: str) -> Token:
         tok = self._peek()
-        if tok.type == typ:
+        if tok.type.upper() == typ.upper():
             return self._advance()
-        raise self._error_at(tok, f"Expected token {typ}, got {tok.type}({tok.value!r})")
+        raise self._error_at(
+            tok, f"Expected token {typ}, got {tok.type}({tok.value!r})"
+        )
 
     def _match_logical(self, value: str) -> bool:
         tok = self._peek()
-        if tok.type == "LOGICAL" and tok.value == value:
+        if tok.type.upper() == "LOGICAL" and tok.value == value:
             self._advance()
             return True
         return False
@@ -468,5 +495,3 @@ class Parser:
 
 def parse(source: str) -> Program:
     return Parser(lex(source)).parse()
-
-

@@ -70,7 +70,9 @@ class HingCCompiler:
         # 3) Semantic
         semantic_issues = analyze(ast)
         semantic_errors = [i for i in semantic_issues if isinstance(i, SemanticError)]
-        semantic_warnings = [i for i in semantic_issues if not isinstance(i, SemanticError)]
+        semantic_warnings = [
+            i for i in semantic_issues if not isinstance(i, SemanticError)
+        ]
         errors.extend(semantic_errors)
         warnings.extend(str(w) for w in semantic_warnings)
 
@@ -100,4 +102,3 @@ class HingCCompiler:
             warnings=warnings,
             phase_failed=None,
         )
-

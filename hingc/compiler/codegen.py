@@ -5,7 +5,6 @@ from typing import List, Optional
 
 from . import ast_nodes as ast
 
-
 TYPE_MAP = {
     "poora": "int",
     "dasha": "float",
@@ -298,4 +297,3 @@ class CCodeGenerator:
             op = self._c_op(e.op)
             return f"({self._emit_expr(e.left)} {op} {self._emit_expr(e.right)})"
         raise TypeError(f"Unsupported expression node: {e.__class__.__name__}")
-

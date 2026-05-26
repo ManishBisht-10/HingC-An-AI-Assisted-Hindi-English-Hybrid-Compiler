@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List
 
 from .errors import LexerError
 
@@ -225,7 +225,9 @@ class Lexer:
                 raise LexerError("Unterminated string literal", start_line, start_col)
             if ch == '"':
                 self._advance()
-                return Token("STRING_LITERAL", "".join(value_chars), start_line, start_col)
+                return Token(
+                    "STRING_LITERAL", "".join(value_chars), start_line, start_col
+                )
             if ch == "\\":
                 value_chars.append(self._read_escape_sequence(start_line, start_col))
                 continue
@@ -301,7 +303,9 @@ class Lexer:
                 second = self._read_identifier_text()
                 key = (first, second)
                 if key in MULTIWORD_KEYWORDS:
-                    return Token("KEYWORD", MULTIWORD_KEYWORDS[key], start_line, start_col)
+                    return Token(
+                        "KEYWORD", MULTIWORD_KEYWORDS[key], start_line, start_col
+                    )
             # rollback if not matching
             self.i, self.line, self.col = save_i, save_line, save_col
 
@@ -324,4 +328,3 @@ class Lexer:
 
 def lex(source: str) -> List[Token]:
     return Lexer(source).tokenize()
-

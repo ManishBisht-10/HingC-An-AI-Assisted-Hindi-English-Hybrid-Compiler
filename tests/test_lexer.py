@@ -64,4 +64,3 @@ def test_multiword_keyword_warna_agar():
     src = "warna agar (x == 1) {\n}\n"
     tv = types_values(lex(src))
     assert ("KEYWORD", "warna agar") in tv
-

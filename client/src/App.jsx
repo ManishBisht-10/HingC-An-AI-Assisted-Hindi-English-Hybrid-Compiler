@@ -24,6 +24,7 @@ export default function App() {
   const [loadingAdvice, setLoadingAdvice] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [llmLanguage, setLlmLanguage] = useState("hinglish");
 
   useEffect(() => {
     fetchExamples().then(setExamples).catch((error) => {
@@ -57,6 +58,19 @@ export default function App() {
     return [...errorMarkers, ...warningMarkers];
   }, [compileResult]);
 
+  const [showMarkers, setShowMarkers] = useState(true);
+
+  function handleApplyFix(fixedCode, lineNumber) {
+    try {
+      editorRef.current?.applyFix(fixedCode, lineNumber);
+      // update source state
+      const modelValue = editorRef.current?._getModel?.() ?? null;
+      // Fallback: setSourceCode will be updated by Editor's onChange when model changes
+    } catch (e) {
+      // ignore
+    }
+  }
+
   async function runCompilation() {
     setStatus({ running: true, phase: "starting..." });
     setErrorMessage("");
@@ -70,6 +84,7 @@ export default function App() {
           source_code: sourceCode,
           get_llm_advice: true,
           stdin_input: stdinInput,
+          llm_language: llmLanguage,
         }),
       );
     };
@@ -170,7 +185,7 @@ export default function App() {
             value={sourceCode} 
             onChange={setSourceCode} 
             onRun={runCompilation} 
-            markers={markers} 
+            markers={showMarkers ? markers : []} 
           />
 
           <div className="grid grid-rows-[1fr,auto,auto] gap-3">
@@ -187,7 +202,20 @@ export default function App() {
               sourceCode={sourceCode}
               onJumpToLine={(lineNumber) => editorRef.current?.jumpToLine(lineNumber)}
             />
-            <CodeSage advice={compileResult?.llm_advice} loading={loadingAdvice} />
+            <CodeSage
+              advice={compileResult?.llm_advice}
+              loading={loadingAdvice}
+              onRun={runCompilation}
+              compileResult={compileResult}
+                onJumpToLine={(lineNumber) => editorRef.current?.jumpToLine(lineNumber)}
+                sourceCode={sourceCode}
+              onApplyFix={handleApplyFix}
+              showMarkers={showMarkers}
+              onToggleMarkers={() => setShowMarkers((s) => !s)}
+              llmLanguage={llmLanguage}
+              onLanguageChange={setLlmLanguage}
+              onUndo={() => editorRef.current?.undo && editorRef.current.undo()}
+            />
           </div>
         </section>
 

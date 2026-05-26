@@ -1,14 +1,12 @@
 import pytest
 import requests
 from hingc.compiler import tokenize, Parser, compile_to_c
-from hingc.api.executor import execute_c_code
-import json
-import time
 
 # Integration tests that test the full compilation pipeline
 
 BASE_URL = "http://127.0.0.1:8000"
 TIMEOUT = 10
+
 
 class TestCompilationPipeline:
     """Test end-to-end compilation from HingC to C to execution"""
@@ -87,10 +85,21 @@ khatam"""
         tokens = tokenize(code)
         keyword_tokens = [t for t in tokens if t.type == "keyword"]
         keyword_values = set(t.value for t in keyword_tokens)
-        
+
         expected = {
-            "shuru", "rakho", "poora", "agar", "warna", "jabtak",
-            "karo", "chunao", "sthiti", "warna_default", "toro", "wapas", "khatam"
+            "shuru",
+            "rakho",
+            "poora",
+            "agar",
+            "warna",
+            "jabtak",
+            "karo",
+            "chunao",
+            "sthiti",
+            "warna_default",
+            "toro",
+            "wapas",
+            "khatam",
         }
         assert expected.issubset(keyword_values)
 
@@ -117,7 +126,7 @@ khatam"""
         parser = Parser(tokens)
         ast = parser.parse()
         c_code = compile_to_c(ast, tokens)
-        
+
         assert c_code is not None
         assert "#include" in c_code
         assert "int main" in c_code
@@ -204,7 +213,7 @@ khatam"""
 
     def test_missing_program_boundaries(self):
         """Test error on missing shuru/khatam"""
-        code = "likho(\"hello\\n\")"
+        code = 'likho("hello\\n")'
         payload = {
             "source_code": code,
             "get_llm_advice": False,

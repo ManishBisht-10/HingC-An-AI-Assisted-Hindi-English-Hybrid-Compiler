@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, List, Optional, Sequence, Tuple, Union
+from typing import Any, List, Optional, Tuple
 
 
 class ASTNode:
@@ -243,4 +243,3 @@ __all__ = [
     "StringLiteral",
     "CharLiteral",
 ]
-

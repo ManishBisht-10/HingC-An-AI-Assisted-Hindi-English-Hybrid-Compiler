@@ -94,4 +94,3 @@ khatam
 def test_invalid_syntax_raises_error():
     with pytest.raises(ParseError):
         parse("shuru\nrakho poora x =\nkhatam\n")
-

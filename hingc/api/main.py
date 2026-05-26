@@ -19,7 +19,6 @@ from hingc.compiler.compiler import HingCCompiler
 from hingc.compiler.errors import CompilerError
 from hingc.compiler.lexer import Token
 
-
 EXAMPLES: list[dict[str, str]] = [
     {"name": "Hello Duniya", "code": 'shuru\nlikho("Namaste Duniya\\n")\nkhatam\n'},
     {
@@ -30,7 +29,7 @@ EXAMPLES: list[dict[str, str]] = [
             "    wapas a + b\n"
             "}\n"
             "rakho poora x = jodo(2, 3)\n"
-            "likho(\"Sum: %d\\n\", x)\n"
+            'likho("Sum: %d\\n", x)\n'
             "khatam\n"
         ),
     },
@@ -40,13 +39,13 @@ EXAMPLES: list[dict[str, str]] = [
             "shuru\n"
             "karo (rakho poora i = 1 ; i <= 15 ; i = i + 1) {\n"
             "    agar ((i % 3 == 0) aur (i % 5 == 0)) {\n"
-            "        likho(\"FizzBuzz\\n\")\n"
+            '        likho("FizzBuzz\\n")\n'
             "    } warna agar (i % 3 == 0) {\n"
-            "        likho(\"Fizz\\n\")\n"
+            '        likho("Fizz\\n")\n'
             "    } warna agar (i % 5 == 0) {\n"
-            "        likho(\"Buzz\\n\")\n"
+            '        likho("Buzz\\n")\n'
             "    } warna {\n"
-            "        likho(\"%d\\n\", i)\n"
+            '        likho("%d\\n", i)\n'
             "    }\n"
             "}\n"
             "khatam\n"
@@ -60,13 +59,13 @@ EXAMPLES: list[dict[str, str]] = [
             "rakho poora b = 1\n"
             "rakho poora n = 7\n"
             "jabtak (n > 0) {\n"
-            "    likho(\"%d \", a)\n"
+            '    likho("%d ", a)\n'
             "    rakho poora next = a + b\n"
             "    a = b\n"
             "    b = next\n"
             "    n = n - 1\n"
             "}\n"
-            "likho(\"\\n\")\n"
+            'likho("\\n")\n'
             "khatam\n"
         ),
     },
@@ -76,13 +75,13 @@ EXAMPLES: list[dict[str, str]] = [
             "shuru\n"
             "rakho poora marks = 78\n"
             "agar (marks >= 90) {\n"
-            "    likho(\"Grade A\\n\")\n"
+            '    likho("Grade A\\n")\n'
             "} warna agar (marks >= 75) {\n"
-            "    likho(\"Grade B\\n\")\n"
+            '    likho("Grade B\\n")\n'
             "} warna agar (marks >= 60) {\n"
-            "    likho(\"Grade C\\n\")\n"
+            '    likho("Grade C\\n")\n'
             "} warna {\n"
-            "    likho(\"Need improvement\\n\")\n"
+            '    likho("Need improvement\\n")\n'
             "}\n"
             "khatam\n"
         ),
@@ -92,9 +91,9 @@ EXAMPLES: list[dict[str, str]] = [
         "code": (
             "shuru\n"
             "rakho poora x\n"
-            "likho(\"Number do: \")\n"
-            "lo(\"%d\", &x)\n"
-            "likho(\"Aapne diya: %d\\n\", x)\n"
+            'likho("Number do: ")\n'
+            'lo("%d", &x)\n'
+            'likho("Aapne diya: %d\\n", x)\n'
             "khatam\n"
         ),
     },
@@ -102,9 +101,9 @@ EXAMPLES: list[dict[str, str]] = [
         "name": "Broken Code",
         "code": (
             "shuru\n"
-            "rakho poora x = \"hello\"\n"
+            'rakho poora x = "hello"\n'
             "agar (x >) {\n"
-            "    likho(\"oops\\n\")\n"
+            '    likho("oops\\n")\n'
             "}\n"
             "khatam\n"
         ),
@@ -113,14 +112,19 @@ EXAMPLES: list[dict[str, str]] = [
 
 
 class CompileRequest(BaseModel):
-    source_code: str = Field(min_length=1, max_length=int(os.getenv("MAX_CODE_LENGTH", "10000")))
+    source_code: str = Field(
+        min_length=1, max_length=int(os.getenv("MAX_CODE_LENGTH", "10000"))
+    )
     get_llm_advice: bool = True
     stdin_input: str = ""
+    llm_language: str = "hinglish"
 
 
 class SnippetSaveRequest(BaseModel):
     title: str = Field(min_length=1, max_length=200)
-    code: str = Field(min_length=1, max_length=int(os.getenv("MAX_CODE_LENGTH", "10000")))
+    code: str = Field(
+        min_length=1, max_length=int(os.getenv("MAX_CODE_LENGTH", "10000"))
+    )
 
 
 class SnippetResponse(BaseModel):
@@ -208,6 +212,7 @@ async def _compile_flow(req: CompileRequest) -> dict[str, Any]:
             source_code=req.source_code,
             errors=result.errors,
             generated_c=result.generated_c_code,
+            language=getattr(req, "llm_language", "hinglish"),
         )
         llm_advice = advice_to_dict(llm)
 
@@ -240,7 +245,10 @@ def _parse_cors_origins() -> list[str]:
 
 def _cors_origin_regex() -> str:
     # Allow local-network dev URLs like http://10.x.x.x:5173, http://172.x.x.x:5173, http://192.168.x.x:5173
-    return os.getenv("CORS_ORIGIN_REGEX", r"^https?://(localhost|127\.0\.0\.1|(?:\d{1,3}\.){3}\d{1,3})(:\d+)?$")
+    return os.getenv(
+        "CORS_ORIGIN_REGEX",
+        r"^https?://(localhost|127\.0\.0\.1|(?:\d{1,3}\.){3}\d{1,3})(:\d+)?$",
+    )
 
 
 @asynccontextmanager
@@ -260,14 +268,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 @app.get("/api/health")
 async def health() -> dict[str, str]:
     return {"status": "ok", "version": __version__}
 
 
 @app.get("/api/examples")
-async def list_examples() -> list[dict[str, str]]:
-    return EXAMPLES
+async def list_examples() -> dict[str, list[dict[str, str]]]:
+    return {"examples": EXAMPLES}
 
 
 @app.post("/api/compile")
@@ -276,7 +285,9 @@ async def compile_endpoint(req: CompileRequest) -> dict[str, Any]:
 
 
 @app.post("/api/snippets/save", response_model=SnippetResponse)
-async def save_snippet(req: SnippetSaveRequest, db: Session = Depends(_get_db)) -> SnippetResponse:
+async def save_snippet(
+    req: SnippetSaveRequest, db: Session = Depends(_get_db)
+) -> SnippetResponse:
     row = Snippet(title=req.title, code=req.code)
     db.add(row)
     db.commit()
@@ -285,7 +296,9 @@ async def save_snippet(req: SnippetSaveRequest, db: Session = Depends(_get_db)) 
 
 
 @app.get("/api/snippets/{snippet_id}", response_model=SnippetResponse)
-async def get_snippet(snippet_id: int, db: Session = Depends(_get_db)) -> SnippetResponse:
+async def get_snippet(
+    snippet_id: int, db: Session = Depends(_get_db)
+) -> SnippetResponse:
     row = db.get(Snippet, snippet_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Snippet not found")
@@ -307,7 +320,9 @@ async def ws_compile(websocket: WebSocket) -> None:
             response = await _compile_flow(req)
 
             if response.get("success"):
-                await websocket.send_json({"event": "phase", "message": "compiling C..."})
+                await websocket.send_json(
+                    {"event": "phase", "message": "compiling C..."}
+                )
                 await asyncio.sleep(0)
                 await websocket.send_json({"event": "phase", "message": "running..."})
                 await asyncio.sleep(0)

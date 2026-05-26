@@ -19,7 +19,9 @@ def test_system_prompt_contains_required_roles():
 
 def test_user_payload_contains_structured_errors():
     err = ParseError("Expected expression", line=3, column=8)
-    payload = _build_user_payload(source_code="shuru\nabc\nkhatam\n", errors=[err], generated_c=None)
+    payload = _build_user_payload(
+        source_code="shuru\nabc\nkhatam\n", errors=[err], generated_c=None
+    )
 
     assert '"error_id": "E1"' in payload
     assert '"phase": "parser"' in payload
@@ -27,7 +29,7 @@ def test_user_payload_contains_structured_errors():
 
 
 def test_parse_model_response_extracts_embedded_json():
-    raw = "Some text\n```json\n{\"overall_summary\":\"ok\",\"code_quality_tips\":[]}\n```"
+    raw = 'Some text\n```json\n{"overall_summary":"ok","code_quality_tips":[]}\n```'
     parsed = _parse_model_response(raw)
     assert parsed["overall_summary"] == "ok"
 
@@ -189,7 +191,10 @@ def test_invalid_character_gets_specific_targeted_fix(monkeypatch):
     advice = asyncio.run(explain_errors("shuru\n@\nkhatam\n", [err], None))
     item = advice_to_dict(advice)["error_explanations"][0]
 
-    assert "invalid" in item["fix_suggestion"].lower() or "symbol" in item["fix_suggestion"].lower()
+    assert (
+        "invalid" in item["fix_suggestion"].lower()
+        or "symbol" in item["fix_suggestion"].lower()
+    )
     assert item["fixed_code_snippet"] == "(remove this line)"
 
 
@@ -198,7 +203,7 @@ def test_expected_rparen_fix_uses_incorrect_line_context(monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.setenv("LLM_PROVIDER", "anthropic")
 
-    src = "shuru\nagar (x > 0 {\nlikho(\"x\")\n}\nkhatam\n"
+    src = 'shuru\nagar (x > 0 {\nlikho("x")\n}\nkhatam\n'
     err = ParseError("Expected token RPAREN, got LBRACE('{')", line=2, column=13)
     advice = asyncio.run(explain_errors(src, [err], None))
     item = advice_to_dict(advice)["error_explanations"][0]
@@ -211,7 +216,7 @@ def test_expected_lparen_fix_wraps_arguments(monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.setenv("LLM_PROVIDER", "anthropic")
 
-    src = "shuru\nlikho \"x\"\nkhatam\n"
+    src = 'shuru\nlikho "x"\nkhatam\n'
     err = ParseError("Expected token LPAREN, got STRING_LITERAL('x')", line=2, column=7)
     advice = asyncio.run(explain_errors(src, [err], None))
     item = advice_to_dict(advice)["error_explanations"][0]
@@ -263,7 +268,7 @@ def test_fix_suggestion_contains_line_specific_custom_fix(monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.setenv("LLM_PROVIDER", "anthropic")
 
-    src = "shuru\nlikho \"x\"\nkhatam\n"
+    src = 'shuru\nlikho "x"\nkhatam\n'
     err = ParseError("Expected token LPAREN, got STRING_LITERAL('x')", line=2, column=7)
     advice = asyncio.run(explain_errors(src, [err], None))
     item = advice_to_dict(advice)["error_explanations"][0]
@@ -277,11 +282,13 @@ def test_multi_semantic_errors_get_individual_line_specific_advice(monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.setenv("LLM_PROVIDER", "anthropic")
 
-    src = "shuru\nx = 5\ntoro\nrakho poora y = \"hi\"\nkhatam\n"
+    src = 'shuru\nx = 5\ntoro\nrakho poora y = "hi"\nkhatam\n'
     errs = [
         SemanticError("Undeclared variable 'x'", line=1, column=1),
         SemanticError("Break (toro) used outside of a loop", line=1, column=1),
-        SemanticError("Type mismatch: cannot assign shabd to poora variable 'y'", line=1, column=1),
+        SemanticError(
+            "Type mismatch: cannot assign shabd to poora variable 'y'", line=1, column=1
+        ),
     ]
 
     advice = asyncio.run(explain_errors(src, errs, None))

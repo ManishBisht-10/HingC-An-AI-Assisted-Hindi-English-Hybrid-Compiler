@@ -16,7 +16,9 @@ int main() {
 }
 """
     res = asyncio.run(execute_c_code(c, timeout=5))
-    if (not res.success) and ("blocked" in res.stderr.lower() or "policy" in res.stderr.lower()):
+    if (not res.success) and (
+        "blocked" in res.stderr.lower() or "policy" in res.stderr.lower()
+    ):
         pytest.skip(f"Execution blocked by OS policy: {res.stderr}")
     assert res.gcc_error is None
     assert res.timed_out is False
@@ -35,7 +37,8 @@ int main() {
 }
 """
     res = asyncio.run(execute_c_code(c, stdin_input="41\n", timeout=5))
-    if (not res.success) and ("blocked" in res.stderr.lower() or "policy" in res.stderr.lower()):
+    if (not res.success) and (
+        "blocked" in res.stderr.lower() or "policy" in res.stderr.lower()
+    ):
         pytest.skip(f"Execution blocked by OS policy: {res.stderr}")
     assert res.stdout.strip() == "42"
-
