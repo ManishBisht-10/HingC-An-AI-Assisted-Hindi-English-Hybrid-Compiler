@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+.venv/
+venv/
+env/
+.env
+.pytest_cache/
+.mypy_cache/
+
+# Database / caches
+*.db
+*.sqlite3
+.hingc_llm_cache.json
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
+
+# Node / frontend
+node_modules/
+client/dist/
+.vite/
+
+# Logs
+*.log
